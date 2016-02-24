@@ -10,7 +10,7 @@ class ChaseTudou :
 		self.fileUrlPrefix = 'http://vr.tudou.com/v2proxy/v2.m3u8?it='
 		self.urlSuffix     = '&s=0&e=10000000000'
 		self.videoTypeList = {'n': 'mp4', 'h': 'mp4', 's': 'mp4'}
-		self.videoType     = self.videoTypeList['h']
+		self.videoType     = self.videoTypeList['s']
 		self.Tools         = toolClass.Tools()
 
 	def chaseUrl (self) :
@@ -44,7 +44,7 @@ class ChaseTudou :
 		pageHeader, pageBody = self.Tools.getPage(fileUrl)
 
 		data = self.__formatList(pageBody)
-		
+
 		return data
 
 	def  __formatList (self, data):

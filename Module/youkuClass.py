@@ -6,6 +6,7 @@ import base64
 import urllib
 import re
 from Library import toolClass
+from bs4 import BeautifulSoup
 
 class ChaseYouku :
 
@@ -13,16 +14,53 @@ class ChaseYouku :
 		self.videoLink     = ''
 		self.cookieUrl     = 'http://p.l.youku.com/ypvlog'
 		self.infoUrl       = 'http://play.youku.com/play/get.json?ct=12&vid='
+		self.infoUrl1       = 'http://play.youku.com/play/get.json?ct=10&vid='
 		self.fileUrlPrefix = 'http://pl.youku.com/playlist/m3u8?ctype=12&ev=1&keyframe=1'
 		self.videoTypeList = {'n': 'flv', 'h': 'mp4', 's': 'hd2'}
 		self.videoType     = 's'
 		self.tempCookie    = ''
 		self.Tools         = toolClass.Tools()
 
-	def chaseUrl (self) :
+	def getVideoPlaylist (self) :
+		orgUrl = self.videoLink
+		pageBody = self.Tools.getPage(self.videoLink, decoded=False)
+		soup = BeautifulSoup(pageBody, "html.parser", from_encoding='utf-8')
+		flag = 'tv'
+		rawtvlist = soup.find_all("div", attrs={"name": "tvlist"})
+		if len(rawtvlist) == 0 :
+			flag = 'others'
+			rawtvlist = soup.find_all("a", "m_component")
+			if len(rawtvlist) == 0 :
+				flag = 'single'
+		title = soup.find(attrs={"name": "irAlbumName"})['content']
+		tvlist = {'title': title.replace(' ', '').replace('/', ''), 'video': []}
+		if flag != 'single' :
+			flag2 = True
+			for item in rawtvlist :
+				if flag == 'tv' :
+					self.videoLink = item.a['href']
+				else :
+					self.videoLink = item['href']
+				if self.__getVideoID(self.videoLink) in orgUrl :
+					flag2 = False
+				downloadUrl = self.__chaseUrl()['msg']
+				tvlist['video'].append({'name': item['title'].replace(' ', '').replace('/', ''), 'url': self.videoLink, 'downloadUrl': downloadUrl})
+			if flag2 :
+				self.videoLink = orgUrl
+				currentVideo = soup.find('div', 'm_component')
+				downloadUrl = self.__chaseUrl()['msg']
+				tvlist['video'].append({'name': currentVideo['title'].replace(' ', '').replace('/', ''), 'url': self.videoLink, 'downloadUrl': downloadUrl})
+		else :
+			downloadUrl = self.__chaseUrl()['msg']
+			tvlist['video'].append({'name': title.replace(' ', '').replace('/', ''), 'url': self.videoLink, 'downloadUrl': downloadUrl})
+		return tvlist
+
+	def __chaseUrl (self) :
 		result = {'stat': 0, 'msg': ''}
 		videoID = self.__getVideoID(self.videoLink)
 		if videoID :
+			if '.' in videoID :
+				videoID = videoID[:-5] + '=='
 			self.__auth()
 			info = self.__getVideoInfo(videoID)
 			fileUrl = self.__getVideoFileUrl(info)
@@ -41,24 +79,31 @@ class ChaseYouku :
 		if len(result) > 0 :
 			videoID = result[0]
 		else :
-			videoID = False
+			result = re.findall(r"id_(.*?.html)", link)
+			if len(result) > 0 :
+				videoID = result[0]
+			else :
+				videoID = False
 
 		return videoID
 
 	def __auth (self) :
-		pageHeader, pageBody = self.Tools.getPage(self.cookieUrl)
-
-		self.tempCookie = 'Cookie: '
-		for i in pageHeader:
-			cookie = re.findall(r"Set-Cookie:(.*?;)\s*?domain", i)
-			if len(cookie) > 0 :
-				self.tempCookie += cookie[0].strip() + ' '
+		# print self.cookieUrl
+		# pageBody = self.Tools.getPage(self.cookieUrl, decoded = False)
+		self.tempCookie = self.Tools.getCookie(self.cookieUrl)
+		# self.tempCookie = ''
+		# for i in pageHeader:
+		# 	cookie = re.findall(r"Set-Cookie:(.*?;)\s*?domain", i)
+		# 	if len(cookie) > 0 :
+		# 		self.tempCookie += cookie[0].strip() + ' '
 
 	def __getVideoInfo (self, videoID) :
-		pageHeader, pageBody = self.Tools.getPage(self.infoUrl + videoID, ['Referer:http://c-h5.youku.com/', self.tempCookie])
-
+		self.Tools.cookies = self.tempCookie
+		pageBody = self.Tools.getPage(self.infoUrl + videoID, headers = {'Referer': 'http://static.youku.com/'})
+		pageBody1 = self.Tools.getPage(self.infoUrl1 + videoID, headers = {'Referer': 'http://static.youku.com/'})
+		# print pageBody1
 		return pageBody
-			
+
 	def __getVideoFileUrl (self, videoInfo) :
 		videoInfo = json.JSONDecoder().decode(videoInfo)
 		if 'security' in videoInfo['data']:
@@ -80,20 +125,22 @@ class ChaseYouku :
 		return fileUrl
 
 	def __getFileList (self, fileUrl) :
-		pageHeader, pageBody = self.Tools.getPage(fileUrl, [self.tempCookie])
-
+		pageBody = self.Tools.getPage(fileUrl, {'Cookie': self.tempCookie})
 		data = self.__formatList(pageBody)
 		return data
 
 	def  __formatList (self, data):
-		result = []
-		listContent = re.findall(r"(.*)\.ts\?", data)
-		for x in listContent:
-			if x not in result :
-				result.append(x)
-		return result
+		# result = []
+		# listContent = re.findall(r"(.*)\.ts\?", data)
+		listContent = re.findall(r"(http://[^?]+)\?ts_start=0", data)
+		# print listContent
+		# for x in listContent:
+		# 	if x not in result :
+		# 		result.append(x)
+		# return result
+		return listContent
 
-	def __yk_e (self, a, c) : 
+	def __yk_e (self, a, c) :
 		f = 0
 		i = 0
 		h = 0
@@ -121,8 +168,8 @@ class ChaseYouku :
 
 	def __charCodeAt (self, data, index) :
 		charCode = {}
-		md5 = hashlib.md5() 
-		md5.update(data) 
+		md5 = hashlib.md5()
+		md5.update(data)
 		key = md5.hexdigest()
 
 		return ord(data[index])

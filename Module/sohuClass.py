@@ -8,14 +8,30 @@ class ChaseSohu :
 
 	def __init__ (self) :
 		self.videoLink     = ''
-		self.fileUrlPrefix = 'http://m.tv.sohu.com/phone_playinfo?callback=jsonpx1&vid='
+		self.fileUrlPrefix = 'http://m.tv.sohu.com/phone_playinfo?vid='
 		self.fileUrlSuffix = '.m3u8?plat=15&pt=6&prod=ott&pg=1&ch=v&qd=816'
 		self.urlSuffix     = '&start=0&end=10000000000&'
 		self.videoTypeList = {'n': 'nor', 'h': 'hig', 's': 'sup'}
 		self.videoType     = 's'
 		self.Tools         = toolClass.Tools()
 
-	def chaseUrl (self) :
+	def getVideoPlaylist (self) :
+		pageBody = self.Tools.getPage(self.videoLink, decoded=False)
+		result = re.findall(r'''playlistId="\d+''', pageBody)
+		playlistId = result[0][12:]
+		playlistUrl = 'http://pl.hd.sohu.com/videolist?playlistid=' + playlistId
+		pageBody = self.Tools.getPage(playlistUrl)
+		rawplaylist = pageBody
+		playlist = json.loads(rawplaylist)
+		title = playlist['albumName']
+		tvlist = {'title': title, 'video': []}
+		for item in playlist['videos']:
+			self.videoLink = item['pageUrl']
+			downloadUrl = self.__chaseUrl()['msg']
+			tvlist['video'].append({'name': item['showName'].replace(' ', '').replace('/', ''), 'url': self.videoLink, 'downloadUrl': downloadUrl})
+		return tvlist
+
+	def __chaseUrl (self) :
 		result = {'stat': 0, 'msg': ''}
 		videoID = self.__getVideoID(self.videoLink)
 
@@ -36,7 +52,7 @@ class ChaseSohu :
 		return result
 
 	def __getVideoID(self, link):
-		pageHeader, pageBody = self.Tools.getPage(link)
+		pageBody = self.Tools.getPage(link, decoded=False)
 
 		result = re.findall(r"\s+?vid\s*?=\s*?[\"\']\s*?(.*)\s*?[\"\']", pageBody)
 		if len(result) > 0 :
@@ -53,11 +69,8 @@ class ChaseSohu :
 	def __getVideoFileUrl (self, confgFileUrl, siteType = 1) :
 		if siteType != 1:
 			confgFileUrl = confgFileUrl + '&site=' + str(siteType)
-
-		pageHeader, pageBody = self.Tools.getPage(confgFileUrl)
-		info = re.findall(r"^.*\((.*)\);", pageBody)
-		info = info[0].decode('gbk').encode('utf-8')
-		info = json.JSONDecoder().decode(info)
+		pageBody = self.Tools.getPage(confgFileUrl)
+		info = json.JSONDecoder().decode(pageBody)
 
 		if info.has_key('data') :
 			if len(info['data']['urls']['m3u8'][self.videoTypeList[self.videoType]]) > 0 :
@@ -76,7 +89,7 @@ class ChaseSohu :
 		return fileUrl
 
 	def __getFileList (self, fileUrl) :
-		pageHeader, pageBody = self.Tools.getPage(fileUrl)
+		pageBody = self.Tools.getPage(fileUrl)
 		data = self.__formatList(pageBody)
 
 		return data
